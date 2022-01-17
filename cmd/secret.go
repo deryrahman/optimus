@@ -29,6 +29,7 @@ func secretCommand(l log.Logger, conf config.Provider) *cli.Command {
 		Short: "Manage secrets to be used in jobs",
 	}
 	cmd.AddCommand(secretSetSubCommand(l, conf))
+	cmd.AddCommand(secretListSubCommand(l, conf))
 	return cmd
 }
 
@@ -115,6 +116,31 @@ Use base64 flag if the value has been encoded.
 		return nil
 	}
 	return secretCmd
+}
+
+func secretListSubCommand(l log.Logger, conf config.Provider) *cli.Command {
+	var (
+		projectName   string
+		namespaceName string
+	)
+
+	secretListCmd := &cli.Command{
+		Use:     "list",
+		Short:   "Show all the secrets registered with optimus",
+		Example: "optimus secret list",
+		Long:    `This operation shows the secrets for project.`,
+	}
+	secretListCmd.Flags().StringVarP(&projectName, "project", "p", conf.GetProject().Name, "Project name of optimus managed repository")
+	secretListCmd.Flags().StringVarP(&namespaceName, "namespace", "n", conf.GetNamespace().Name, "Namespace of deployee")
+
+	secretListCmd.RunE = func(cmd *cli.Command, args []string) error {
+
+		updateSecretRequest := &pb.ListSecretsRequest{
+			ProjectName: projectName,
+		}
+		return listSecret(l, conf, updateSecretRequest)
+	}
+	return secretListCmd
 }
 
 func getSecretName(args []string) (string, error) {
@@ -228,6 +254,41 @@ func updateSecret(l log.Logger, conf config.Provider, req *pb.UpdateSecretReques
 	} else {
 		return errors.New(fmt.Sprintf("Request failed for updating secret %s: %s", req.SecretName,
 			updateSecretResponse.Message))
+	}
+
+	return nil
+}
+
+func listSecret(l log.Logger, conf config.Provider, req *pb.ListSecretsRequest) (err error) {
+	dialTimeoutCtx, dialCancel := context.WithTimeout(context.Background(), OptimusDialTimeout)
+	defer dialCancel()
+
+	var conn *grpc.ClientConn
+	if conn, err = createConnection(dialTimeoutCtx, conf.GetHost()); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			l.Info("can't reach optimus service")
+		}
+		return err
+	}
+	defer conn.Close()
+
+	secretRequestTimeout, secretRequestCancel := context.WithTimeout(context.Background(), secretTimeout)
+	defer secretRequestCancel()
+
+	l.Info("please wait...")
+	runtime := pb.NewRuntimeServiceClient(conn)
+
+	updateSecretResponse, err := runtime.ListSecrets(secretRequestTimeout, req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			l.Info("secret update took too long, timing out")
+		}
+		return errors.Wrap(err, "request failed for listing secrets")
+	}
+
+	fmt.Println("Name\t\t| Namespace\t\t| Digest\t\t| Updated At")
+	for _, secret := range updateSecretResponse.Secrets {
+		fmt.Printf("%s\t%s\t%s\t%s\n", secret.Name, secret.Namespace, secret.Digest, secret.UpdatedAt)
 	}
 
 	return nil

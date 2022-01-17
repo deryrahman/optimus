@@ -1220,6 +1220,37 @@
         ]
       }
     },
+    "/v1beta1/project/{projectName}/secret": {
+      "get": {
+        "summary": "ListSecrets shows the secrets registered for a project",
+        "operationId": "RuntimeService_ListSecrets",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1beta1ListSecretsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RuntimeService"
+        ]
+      }
+    },
     "/v1beta1/project/{projectName}/secret/{secretName}": {
       "post": {
         "summary": "RegisterSecret creates a new secret of a project",
@@ -1476,6 +1507,24 @@
         },
         "type": {
           "type": "string"
+        }
+      }
+    },
+    "ListSecretsResponseSecret": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -2086,6 +2135,17 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/v1beta1ResourceSpecification"
+          }
+        }
+      }
+    },
+    "v1beta1ListSecretsResponse": {
+      "type": "object",
+      "properties": {
+        "secrets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ListSecretsResponseSecret"
           }
         }
       }

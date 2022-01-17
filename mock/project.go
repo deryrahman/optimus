@@ -62,9 +62,9 @@ func (pr *ProjectSecretRepository) GetByName(ctx context.Context, name string) (
 	return args.Get(0).(models.ProjectSecretItem), args.Error(1)
 }
 
-func (pr *ProjectSecretRepository) GetAll(ctx context.Context) ([]models.ProjectSecretItem, error) {
+func (pr *ProjectSecretRepository) GetAll(ctx context.Context) ([]models.SecretItemInfo, error) {
 	args := pr.Called(ctx)
-	return args.Get(0).([]models.ProjectSecretItem), args.Error(1)
+	return args.Get(0).([]models.SecretItemInfo), args.Error(1)
 }
 
 type PipelineLogObserver struct {

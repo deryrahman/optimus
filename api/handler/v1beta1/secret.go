@@ -8,6 +8,7 @@ import (
 	"github.com/odpf/optimus/models"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (sv *RuntimeServiceServer) RegisterSecret(ctx context.Context, req *pb.RegisterSecretRequest) (*pb.RegisterSecretResponse, error) {
@@ -76,6 +77,36 @@ func (sv *RuntimeServiceServer) UpdateSecret(ctx context.Context, req *pb.Update
 	return &pb.UpdateSecretResponse{
 		Success: true,
 	}, nil
+}
+
+func (sv *RuntimeServiceServer) ListSecrets(ctx context.Context, req *pb.ListSecretsRequest) (*pb.ListSecretsResponse, error) {
+	projectRepo := sv.projectRepoFactory.New()
+	projSpec, err := projectRepo.GetByName(ctx, req.GetProjectName())
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "%s: project %s not found", err.Error(), req.GetProjectName())
+	}
+
+	// Read namespace from request
+	namespaceSpec := models.NamespaceSpec{}
+
+	secretRepo := sv.secretRepoFactory.New(projSpec, namespaceSpec)
+	secrets, err := secretRepo.GetAll(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%s: failed to list secrets", err.Error())
+	}
+
+	var secretsResponse []*pb.ListSecretsResponse_Secret
+	for _, s := range secrets {
+		respSecret := pb.ListSecretsResponse_Secret{
+			Name:      s.Name,
+			Namespace: s.Namespace,
+			Digest:    s.Digest,
+			UpdatedAt: timestamppb.New(s.UpdatedAt),
+		}
+		secretsResponse = append(secretsResponse, &respSecret)
+	}
+
+	return &pb.ListSecretsResponse{Secrets: secretsResponse}, nil
 }
 
 func getDecodedSecret(encodedString string) (string, error) {

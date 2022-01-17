@@ -47,7 +47,7 @@ type ProjectSecretRepository interface {
 	Save(ctx context.Context, item models.ProjectSecretItem) error
 	Update(ctx context.Context, item models.ProjectSecretItem) error
 	GetByName(context.Context, string) (models.ProjectSecretItem, error)
-	GetAll(context.Context) ([]models.ProjectSecretItem, error)
+	GetAll(context.Context) ([]models.SecretItemInfo, error)
 }
 
 // NamespaceRepository represents a storage interface for registered namespaces

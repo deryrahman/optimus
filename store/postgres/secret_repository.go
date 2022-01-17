@@ -86,6 +86,39 @@ func (p Secret) ToSpec(hash models.ApplicationKey) (models.ProjectSecretItem, er
 	}, nil
 }
 
+func (p Secret) ToSecretItemInfo(hash models.ApplicationKey) (models.SecretItemInfo, error) {
+	// decode base64
+	encrypted, err := base64.StdEncoding.DecodeString(p.Value)
+	if err != nil {
+		return models.SecretItemInfo{}, err
+	}
+
+	// decrypt secret
+	cleartext, err := cryptopasta.Decrypt(encrypted, hash.GetKey())
+	if err != nil {
+		return models.SecretItemInfo{}, err
+	}
+
+	digest, err := cryptopasta.HashPassword(cleartext)
+	if err != nil {
+		return models.SecretItemInfo{}, err
+	}
+
+	secretType := models.SecretTypeSystemDefined
+	if p.Type == models.SecretTypeUserDefined.String() {
+		secretType = models.SecretTypeUserDefined
+	}
+
+	return models.SecretItemInfo{
+		ID:        p.ID,
+		Name:      p.Name,
+		Digest:    string(digest),
+		Type:      secretType,
+		Namespace: p.Namespace.Name,
+		UpdatedAt: p.UpdatedAt,
+	}, nil
+}
+
 type secretRepository struct {
 	db        *gorm.DB
 	project   models.ProjectSpec
@@ -155,20 +188,21 @@ func (repo *secretRepository) GetByID(ctx context.Context, id uuid.UUID) (models
 	return r.ToSpec(repo.hash)
 }
 
-func (repo *secretRepository) GetAll(ctx context.Context) ([]models.ProjectSecretItem, error) {
-	var specs []models.ProjectSecretItem
+func (repo *secretRepository) GetAll(ctx context.Context) ([]models.SecretItemInfo, error) {
+	var secretItems []models.SecretItemInfo
 	var resources []Secret
-	if err := repo.db.WithContext(ctx).Find(&resources).Error; err != nil {
-		return specs, err
+	if err := repo.db.WithContext(ctx).Where("project_id = ?", repo.project.ID).Find(&resources).Error; err != nil {
+		return secretItems, err
 	}
 	for _, res := range resources {
-		adapted, err := res.ToSpec(repo.hash)
+		adapted, err := res.ToSecretItemInfo(repo.hash)
 		if err != nil {
-			return specs, errors.Wrap(err, "failed to adapt secret")
+			return secretItems, errors.Wrap(err, "failed to adapt secret")
 		}
-		specs = append(specs, adapted)
+		secretItems = append(secretItems, adapted)
 	}
-	return specs, nil
+
+	return secretItems, nil
 }
 
 func NewSecretRepository(db *gorm.DB, project models.ProjectSpec, namespace models.NamespaceSpec, hash models.ApplicationKey) *secretRepository {

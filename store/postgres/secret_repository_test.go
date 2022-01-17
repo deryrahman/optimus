@@ -29,6 +29,12 @@ func TestSecretRepository(t *testing.T) {
 		Name:        "sample-namespace",
 		ProjectSpec: projectSpec,
 	}
+
+	otherNamespaceSpec := models.NamespaceSpec{
+		ID:          uuid.Must(uuid.NewRandom()),
+		Name:        "other-namespace",
+		ProjectSpec: projectSpec,
+	}
 	hash, _ := models.NewApplicationSecret("32charshtesthashtesthashtesthash")
 
 	DBSetup := func() *gorm.DB {
@@ -56,6 +62,7 @@ func TestSecretRepository(t *testing.T) {
 
 		namespaceRepo := NewNamespaceRepository(dbConn, projectSpec, hash)
 		assert.Nil(t, namespaceRepo.Save(ctx, namespaceSpec))
+		assert.Nil(t, namespaceRepo.Save(ctx, otherNamespaceSpec))
 		return dbConn
 	}
 
@@ -64,6 +71,7 @@ func TestSecretRepository(t *testing.T) {
 			ID:    uuid.Must(uuid.NewRandom()),
 			Name:  "g-optimus",
 			Value: "secret",
+			Type:  models.SecretTypeUserDefined,
 		},
 		{
 			Name: "",
@@ -72,11 +80,19 @@ func TestSecretRepository(t *testing.T) {
 			ID:    uuid.Must(uuid.NewRandom()),
 			Name:  "t-optimus",
 			Value: "super-secret",
+			Type:  models.SecretTypeUserDefined,
 		},
 		{
 			ID:    uuid.Must(uuid.NewRandom()),
 			Name:  "_OPTIMUS_sample_secret",
 			Value: "super-secret",
+			Type:  models.SecretTypeSystemDefined,
+		},
+		{
+			ID:    uuid.Must(uuid.NewRandom()),
+			Name:  "t-optimus-delete",
+			Value: "super-secret",
+			Type:  models.SecretTypeUserDefined,
 		},
 	}
 
@@ -243,5 +259,44 @@ func TestSecretRepository(t *testing.T) {
 		checkModel, err := repo.GetByName(ctx, testModels[0].Name)
 		assert.Nil(t, err)
 		assert.Equal(t, "g-optimus", checkModel.Name)
+	})
+	t.Run("GetAll", func(t *testing.T) {
+		t.Run("should get all the secrets for a namespace", func(t *testing.T) {
+			db := DBSetup()
+			sqlDB, _ := db.DB()
+			defer sqlDB.Close()
+
+			var otherModels []models.ProjectSecretItem
+			otherModels = append(otherModels, testConfigs...)
+			repoOther := NewSecretRepository(db, projectSpec, otherNamespaceSpec, hash)
+			assert.Nil(t, repoOther.Insert(ctx, otherModels[0]))
+			assert.Nil(t, repoOther.Insert(ctx, otherModels[2]))
+			assert.Nil(t, repoOther.Insert(ctx, otherModels[3]))
+
+			var testModels []models.ProjectSecretItem
+			testModels = append(testModels, testConfigs...)
+			repo := NewSecretRepository(db, projectSpec, namespaceSpec, hash)
+			assert.Nil(t, repo.Insert(ctx, testModels[0]))
+			assert.Nil(t, repo.Insert(ctx, testModels[2]))
+			assert.Nil(t, repo.Insert(ctx, testModels[4]))
+			repo.db.Table("secret").Delete(&testModels[4])
+
+			allSecrets, err := repo.GetAll(ctx)
+			assert.Nil(t, err)
+			assert.Len(t, allSecrets, 3)
+
+			// System level secret
+			assert.Equal(t, allSecrets[0].ID, otherModels[3].ID)
+			assert.Equal(t, allSecrets[0].Name, otherModels[3].Name)
+			assert.Equal(t, string(allSecrets[0].Type), string(otherModels[3].Type))
+
+			assert.Equal(t, allSecrets[1].ID, testModels[0].ID)
+			assert.Equal(t, allSecrets[1].Name, testModels[0].Name)
+			assert.Equal(t, string(allSecrets[1].Type), string(testModels[0].Type))
+
+			assert.Equal(t, allSecrets[2].ID, testModels[2].ID)
+			assert.Equal(t, allSecrets[2].Name, testModels[2].Name)
+			assert.Equal(t, string(allSecrets[2].Type), string(testModels[2].Type))
+		})
 	})
 }
