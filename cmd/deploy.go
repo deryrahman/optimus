@@ -138,7 +138,7 @@ func deployAllJobs(deployTimeoutCtx context.Context,
 				runtime,
 				l, conf, pluginRepo,
 				datastoreRepo,
-				namespaceName,
+				name,
 				verbose,
 			)
 		}(namespaceName)
@@ -189,23 +189,26 @@ func deployJob(deployTimeoutCtx context.Context,
 		}
 		adaptedJobSpecs = append(adaptedJobSpecs, adaptJob)
 	}
-	respStream, err := runtime.DeployJobSpecification(deployTimeoutCtx, &pb.DeployJobSpecificationRequest{
-		Jobs:          adaptedJobSpecs,
-		ProjectName:   conf.Project.Name,
-		NamespaceName: namespaceName,
-	})
+	stream, err := runtime.DeployJobSpecification(deployTimeoutCtx)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			l.Error(coloredError("[%s] Deployment process took too long, timing out", namespaceName))
 		}
 		return errors.Wrapf(err, "[%s] deployement failed", namespaceName)
 	}
+	if err := stream.Send(&pb.DeployJobSpecificationRequest{
+		Jobs:          adaptedJobSpecs,
+		ProjectName:   conf.Project.Name,
+		NamespaceName: namespaceName,
+	}); err != nil {
+		return errors.Wrapf(err, "[%s] deployment failed", namespaceName)
+	}
 
 	ackCounter := 0
 	totalJobs := len(jobSpecs)
 	var streamError error
 	for {
-		resp, err := respStream.Recv()
+		resp, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -263,7 +266,7 @@ func deployAllResources(deployTimeoutCtx context.Context,
 				runtime,
 				l, pluginRepo,
 				datastoreRepo, datastoreSpecFs[name],
-				projectName, namespaceName,
+				projectName, name,
 				verbose,
 			)
 		}(namespaceName)
@@ -323,7 +326,13 @@ func deployResource(deployTimeoutCtx context.Context,
 		}
 
 		// send call
-		stream, err := runtime.DeployResourceSpecification(context.Background())
+		stream, err := runtime.DeployResourceSpecification(deployTimeoutCtx)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				l.Error(coloredError("[%s] Deployment process took too long, timing out", namespaceName))
+			}
+			return errors.Wrapf(err, "[%s] deployement failed", namespaceName)
+		}
 		if err := stream.Send(&pb.DeployResourceSpecificationRequest{
 			Resources:     adaptedSpecs,
 			ProjectName:   projectName,
@@ -332,38 +341,12 @@ func deployResource(deployTimeoutCtx context.Context,
 		}); err != nil {
 			return errors.Wrapf(err, "[%s] deployment failed", namespaceName)
 		}
-		rsp, err := stream.Recv()
-		if err != nil {
-			return errors.Wrapf(err, "[%s] receiving failed", namespaceName)
-		}
-		if rsp.Ack {
-			if !rsp.Success {
-				return errors.New(rsp.Message)
-			}
-			if err := stream.CloseSend(); err != nil {
-				return errors.Wrapf(err, "[%s] close connection failed", namespaceName)
-			}
-			break
-		}
-
-		respStream, err := runtime.DeployResourceSpecification(deployTimeoutCtx, &pb.DeployResourceSpecificationRequest{
-			Resources:     adaptedSpecs,
-			ProjectName:   projectName,
-			DatastoreName: storeName,
-			NamespaceName: namespaceName,
-		})
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				l.Error(coloredError("[%s] Deployment process took too long, timing out", namespaceName))
-			}
-			return errors.Wrapf(err, "[%s] deployement failed", namespaceName)
-		}
 
 		// track progress
 		deployCounter := 0
 		totalSpecs := len(adaptedSpecs)
 		for {
-			resp, err := respStream.Recv()
+			resp, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
 					break

@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func replayRunCommand(l log.Logger, conf config.Optimus) *cli.Command {
+func replayCreateCommand(l log.Logger, conf config.Optimus) *cli.Command {
 	var (
 		dryRun           = false
 		forceRun         = false
@@ -27,7 +27,7 @@ func replayRunCommand(l log.Logger, conf config.Optimus) *cli.Command {
 		allDownstream    = false
 		skipConfirm      = false
 		projectName      = conf.Project.Name
-		namespaceName    = conf.Namespace.Name
+		namespaceName    string
 	)
 
 	reCmd := &cli.Command{
@@ -52,6 +52,8 @@ Date ranges are inclusive.
 	}
 	reCmd.Flags().StringVarP(&projectName, "project", "p", projectName, "Project name of optimus managed repository")
 	reCmd.Flags().StringVarP(&namespaceName, "namespace", "n", namespaceName, "Namespace of job that needs to be replayed")
+	reCmd.MarkFlagRequired("namespace")
+
 	reCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", dryRun, "Only do a trial run with no permanent changes")
 	reCmd.Flags().BoolVarP(&forceRun, "force", "f", forceRun, "Run replay even if a previous run is in progress")
 	reCmd.Flags().BoolVar(&skipConfirm, "confirm", skipConfirm, "Skip asking for confirmation")
@@ -96,12 +98,12 @@ Date ranges are inclusive.
 			}
 		}
 
-		replayId, err := runReplayRequest(l, projectName, namespaceName, args[0], args[1], endDate, forceRun,
+		replayID, err := runReplayRequest(l, projectName, namespaceName, args[0], args[1], endDate, forceRun,
 			allowedDownstreamNamespaces, conf.Host)
 		if err != nil {
 			return err
 		}
-		l.Info(coloredSuccess("Replay request created with id %s", replayId))
+		l.Info(coloredSuccess("Replay request created with id %s", replayID))
 		return nil
 	}
 	return reCmd
