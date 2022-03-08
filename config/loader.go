@@ -6,10 +6,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/odpf/salt/config"
 	"github.com/pkg/errors"
-	"gopkg.in/yaml.v2"
+	"github.com/spf13/afero"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -18,12 +20,18 @@ var (
 	FileExtension   = "yaml"
 )
 
+type LoadConfigFunc func(interface{}, afero.Fs, ...string) error
+
 // LoadOptimusConfig Load configuration file from following paths
 // ./
 // <exec>/
 // ~/.optimus/
+// Namespaces will be loaded only from current project ./
 func LoadOptimusConfig() (*Optimus, error) {
+	var fs afero.Fs
 	var optimus Optimus
+
+	fs = afero.NewReadOnlyFs(afero.NewOsFs())
 	currPath, err := os.Getwd()
 	if err != nil {
 		return nil, errors.Wrapf(err, "error getting current work directory path")
@@ -37,58 +45,86 @@ func LoadOptimusConfig() (*Optimus, error) {
 		return nil, errors.Wrapf(err, "error getting the home directory")
 	}
 	optimusDir := filepath.Join(currentHomeDir, ".optimus")
-	l := config.NewLoader(
-		config.WithName(FileName),
-		config.WithType(FileExtension),
-		config.WithPath(currPath),
-		config.WithPath(filepath.Dir(execPath)),
-		config.WithPath(optimusDir),
-		config.WithEnvPrefix("OPTIMUS"),
-		config.WithEnvKeyReplacer(".", "_"),
-	)
-	if err := l.Load(&optimus); err != nil {
+
+	// Load optimus config (server & project)
+	if err = LoadConfig(optimus, fs, currPath, filepath.Dir(execPath), optimusDir); err != nil {
 		return nil, errors.Wrapf(err, "error loading config")
 	}
+
+	// Load namespaces config
+	if err = LoadNamespacesConfig(LoadConfig)(optimus.Namespaces, fs, currPath); err != nil {
+		return nil, errors.Wrapf(err, "error loading namespaces config")
+	}
+
 	return &optimus, nil
 }
 
-func LoadNamespaceConfig() (map[string]*Namespace, error) {
-	currPath, err := os.Getwd()
-	if err != nil {
-		return nil, errors.Wrapf(err, "error getting current work directory path")
-	}
-	infos, err := ioutil.ReadDir(currPath)
-	if err != nil {
-		return nil, err
-	}
-	output := make(map[string]*Namespace)
-	for _, info := range infos {
-		dirPath := info.Name()
-		filePath := path.Join(currPath, dirPath, FileName, FileExtension)
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			continue
-		}
-		content, err := ioutil.ReadFile(filePath)
+// LoadNamespacesConfig loads namespace config from 1 level deep of project directory
+// |_ .optimus.yaml -> project
+// |_ ns1
+//    |_ .optimus.yaml -> namespaces 1
+// |_ ns2
+//    |_ .optimus.yaml -> namespaces 2
+// |_ ...
+func LoadNamespacesConfig(f LoadConfigFunc) func(map[string]*Namespace, afero.Fs, string) error {
+	return func(namespaces map[string]*Namespace, fs afero.Fs, currPath string) error {
+		fileInfos, err := ioutil.ReadDir(currPath)
 		if err != nil {
-			return nil, errors.Wrapf(err, "error reading config from: %s", filePath)
+			return err
 		}
-		var namespace Namespace
-		if err := yaml.Unmarshal(content, &namespace); err != nil {
-			return nil, errors.Wrapf(err, "error unmarshalling config: %s", filePath)
-		}
-		if output[namespace.Name] != nil {
-			fmt.Printf("warning! namespace [%s] from [%s] is already used", namespace.Name, filePath)
-			continue
-		}
-		if namespace.Job.Path != "" {
-			namespace.Job.Path = path.Join(currPath, dirPath, namespace.Job.Path)
-		}
-		for i, d := range namespace.Datastore {
-			if d.Path != "" {
-				namespace.Datastore[i].Path = path.Join(currPath, dirPath, d.Path)
+		for _, fileInfo := range fileInfos {
+			// check if .optimus.yaml exist
+			filePath := path.Join(currPath, fileInfo.Name(), FileName, FileExtension)
+			if _, err := fs.Stat(filePath); os.IsNotExist(err) {
+				continue
 			}
+
+			// load namespace config
+			var namespace Namespace
+			if err := f(namespace, fs, filePath); err != nil {
+				return err
+			}
+
+			// skip conflicted namespace
+			if namespaces[namespace.Name] != nil {
+				fmt.Printf("warning! namespace [%s] from [%s] is already used", namespace.Name, filePath)
+				continue
+			}
+
+			// assigning absolute path for job & datastore
+			namespace.Job.Path = path.Join(currPath, fileInfo.Name(), namespace.Job.Path)
+			for i, d := range namespace.Datastore {
+				namespace.Datastore[i].Path = path.Join(currPath, fileInfo.Name(), d.Path)
+			}
+
+			// assigning to namespaces map
+			namespaces[namespace.Name] = &namespace
 		}
-		output[namespace.Name] = &namespace
+		return nil
 	}
-	return output, nil
+}
+
+func LoadConfig(cfg interface{}, fs afero.Fs, paths ...string) error {
+	// getViperWithDefault + SetFs
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.SetFs(fs)
+
+	opts := []config.LoaderOption{
+		config.WithViper(v),
+		config.WithName(FileName),
+		config.WithType(FileExtension),
+		config.WithEnvPrefix("OPTIMUS"),
+		config.WithEnvKeyReplacer(".", "_"),
+	}
+
+	for _, path := range paths {
+		opts = append(opts, config.WithPath(path))
+	}
+
+	l := config.NewLoader(opts...)
+
+	return l.Load(cfg)
 }

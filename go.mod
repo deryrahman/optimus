@@ -50,6 +50,7 @@ require (
 	github.com/slack-go/slack v0.9.1
 	github.com/spf13/afero v1.6.0
 	github.com/spf13/cobra v1.2.1
+	github.com/spf13/viper v1.8.1
 	github.com/stretchr/testify v1.7.0
 	github.com/xlab/treeprint v1.1.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.25.0
