@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/odpf/optimus/config"
 	"github.com/odpf/optimus/models"
 	"github.com/odpf/optimus/run"
+	"github.com/odpf/optimus/store/local"
 	"github.com/odpf/optimus/utils"
 	"github.com/odpf/salt/log"
+	"github.com/spf13/afero"
 	cli "github.com/spf13/cobra"
 )
 
@@ -17,7 +20,12 @@ var (
 	templateEngine = run.NewGoEngine()
 )
 
-func jobRenderTemplateCommand(l log.Logger, jobSpecRepo JobSpecRepository) *cli.Command {
+func jobRenderTemplateCommand(l log.Logger, namespace *config.Namespace, pluginRepo models.PluginRepository) *cli.Command {
+	jobSpecFs := afero.NewBasePathFs(afero.NewOsFs(), namespace.Job.Path)
+	jobSpecRepo := local.NewJobSpecRepository(
+		jobSpecFs,
+		local.NewJobSpecAdapter(pluginRepo),
+	)
 	cmd := &cli.Command{
 		Use:     "render",
 		Short:   "Apply template values in job specification to current 'render' directory",
